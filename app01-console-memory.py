@@ -1,6 +1,7 @@
 import statistics
 import time
 from typing import Dict, List, Optional, Tuple, Any
+import streamlit as st  # <--- เพิ่มการ import streamlit ตรงนี้
 #123455 hello
 # =====================================================================
 # CONFIGURATION SWITCHES
@@ -137,7 +138,60 @@ class ConsoleView:
         print("-" * 45)
         print("="*45 + "\n")
 
+# =====================================================================
+# 3. PRESENTATION LAYER (STREAMLIT GUI)
+# =====================================================================
+class StreamlitView:
+    """Handles layout, interactive input widgets, and graphical output panels for Streamlit."""
+    
+    @staticmethod
+    def render_app(model: Any, service: ClinicalRiskService) -> None:
+        st.set_page_config(page_title="Diabetes Risk Scoring System", layout="centered")
+        st.title("Diabetes Risk Scoring System")
+        st.markdown("Select a patient, review/modify their clinical metrics, and evaluate diagnostic risk.")
 
+        # Patient Selection
+        valid_ids = model.get_all_ids()
+        selected_id = st.selectbox("Select Patient ID", options=valid_ids)
+
+        if selected_id:
+            patient_metrics = model.get_patient(selected_id)
+
+            if patient_metrics:
+                st.subheader(f"Clinical Profile (Patient {selected_id})")
+                
+                # Interactive Input Fields for Modification
+                updated_metrics = {}
+                cols = st.columns(2)
+                
+                for idx, (metric, current_val) in enumerate(patient_metrics.items()):
+                    with cols[idx % 2]:
+                        updated_metrics[metric] = st.number_input(
+                            f"{metric}", 
+                            value=float(current_val),
+                            step=1.0 if metric == "Age" else 0.1,
+                            format="%.1f"
+                        )
+
+                # Action Button to Save & Evaluate
+                if st.button("Evaluate Patient Risk", type="primary"):
+                    model.update_patient(selected_id, updated_metrics)
+                    score, category = service.evaluate_patient_risk(updated_metrics)
+
+                    st.markdown("---")
+                    st.subheader("Diagnostic Risk Report")
+                    
+                    # Display Results Panel
+                    m_col1, m_col2 = st.columns(2)
+                    m_col1.metric("Cumulative Score", f"{score} pts")
+                    m_col2.metric("Risk Category", category)
+
+                    if category == "Low Risk":
+                        st.success(f"Patient {selected_id} is categorized as **{category.upper()}**.")
+                    elif category == "Moderate Risk":
+                        st.warning(f"Patient {selected_id} is categorized as **{category.upper()}**.")
+                    else:
+                        st.error(f"Patient {selected_id} is categorized as **{category.upper()}**.")
 # =====================================================================
 # 4. ORCHESTRATION LAYER (CONTROLLER)
 # =====================================================================
@@ -310,3 +364,22 @@ if __name__ == "__main__":
     
     app = ConsoleController(model=db_model, service=rules_service, view=ui_view)
     app.run()
+# =====================================================================
+# SYSTEM APPLICATION ENTRY POINT (STREAMLIT)
+# =====================================================================
+if __name__ == "__main__":
+    if RUN_TEST_SUITE:
+        suite = RiskAssessmentTestSuite(model_factory=PatientModel, service_class=ClinicalRiskService)
+        suite.run_all_tiers()
+    
+    # Initialize Model and Service in Streamlit Session State
+    if "db_model" not in st.session_state:
+        st.session_state.db_model = PatientModel()
+    if "rules_service" not in st.session_state:
+        st.session_state.rules_service = ClinicalRiskService()
+    
+    # Render UI
+    StreamlitView.render_app(
+        model=st.session_state.db_model, 
+        service=st.session_state.rules_service
+    )
