@@ -10,7 +10,7 @@ import streamlit as st
 RUN_TEST_SUITE = True
 
 # =====================================================================
-# 1. DATA ACCESS LAYER (MODELS - SQLITE DATABASE)
+# 1. DATA ACCESS LAYER (MODELS - SQLITE3 PERSISTENCE)
 # =====================================================================
 class PatientModel:
     """Manages persistent SQLite database patient data storage and initial data cleaning."""
