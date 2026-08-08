@@ -6,8 +6,9 @@ import streamlit as st
 
 # =====================================================================
 # CONFIGURATION SWITCHES
+# Set to False for production deployment on Streamlit Cloud
 # =====================================================================
-RUN_TEST_SUITE = True
+RUN_TEST_SUITE = False
 
 # =====================================================================
 # 1. DATA ACCESS LAYER (MODELS - SQLITE3 DATABASE)
@@ -248,18 +249,28 @@ class RiskAssessmentTestSuite:
         model = self.model_factory()
         service = self.service_class()
         
+        # Test Case 1: Data cleaning checks (BMI imputation verification)
         patient_102 = model.get_patient(102)
         assert patient_102 is not None, "E2E Error: Patient 102 not found"
         assert patient_102["BMI"] > 0, f"E2E Error: Anomalous BMI of 0 was not replaced. Got {patient_102['BMI']}"
         
-        patient_101 = model.get_patient(101)
-        original_score, _ = service.evaluate_patient_risk(patient_101)
+        # Test Case 2: Ensure baseline low metrics first
+        baseline_low_metrics = {
+            "Glucose": 85.0,
+            "BMI": 20.0,
+            "Age": 25.0,
+            "BloodPressure": 110.0
+        }
+        model.update_patient(101, baseline_low_metrics)
+        patient_101_base = model.get_patient(101)
+        original_score, _ = service.evaluate_patient_risk(patient_101_base)
         
+        # Escalate metrics to guarantee a score increase
         modified_metrics = {
-            "Glucose": 150.0,
-            "BMI": patient_101["BMI"],
-            "Age": patient_101["Age"],
-            "BloodPressure": 140.0
+            "Glucose": 160.0,  # 2 pts
+            "BMI": 32.0,       # 2 pts
+            "Age": 60.0,       # 2 pts
+            "BloodPressure": 140.0 # 2 pts
         }
         
         update_ok = model.update_patient(101, modified_metrics)
@@ -268,7 +279,7 @@ class RiskAssessmentTestSuite:
         updated_profile = model.get_patient(101)
         new_score, new_category = service.evaluate_patient_risk(updated_profile)
         
-        assert new_score > original_score, "E2E Error: Score did not increase after modifying risk variables"
+        assert new_score > original_score, f"E2E Error: Score did not increase (Old: {original_score}, New: {new_score})"
         assert "High" in new_category or "Moderate" in new_category, "E2E Error: Risk category didn't escalate correctly"
         
         print(" ✓ Tier 2 E2E Tests Pass: Clean-to-write-to-score cycle validated.")
