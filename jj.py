@@ -3,12 +3,43 @@ import statistics
 import time
 from typing import Dict, List, Optional, Tuple, Any
 import streamlit as st
+import pandas as pd
 
 # =====================================================================
 # CONFIGURATION SWITCHES
-# Set to False for production deployment on Streamlit Cloud
 # =====================================================================
 RUN_TEST_SUITE = False
+
+# Set page layout to wide and add custom title/icon
+st.set_page_config(
+    page_title="Diabetes Risk Scoring System",
+    page_icon="🩺",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Custom CSS styling for polished UI elements
+st.markdown("""
+<style>
+    .metric-card {
+        background-color: #f8f9fa;
+        border-radius: 10px;
+        padding: 15px;
+        border-left: 5px solid #0d6efd;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        margin-bottom: 10px;
+    }
+    .status-normal { border-left-color: #198754; }
+    .status-warning { border-left-color: #ffc107; }
+    .status-danger { border-left-color: #dc3545; }
+    .stButton>button {
+        width: 100%;
+        border-radius: 6px;
+        height: 3em;
+        font-weight: 600;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # =====================================================================
 # 1. DATA ACCESS LAYER (MODELS - SQLITE3 DATABASE)
@@ -30,7 +61,7 @@ class PatientModel:
             cursor = conn.cursor()
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS patients (
-                    patient_id INTEGER PRIMARY KEY,
+                    patient_id INTEGER PRIMARY KEY AUTOINCREMENT,
                     Glucose REAL,
                     BMI REAL,
                     Age REAL,
@@ -38,7 +69,6 @@ class PatientModel:
                 )
             """)
             
-            # Seed database if empty
             cursor.execute("SELECT COUNT(*) FROM patients")
             if cursor.fetchone()[0] == 0:
                 seed_data = [
@@ -88,6 +118,20 @@ class PatientModel:
             if row:
                 return dict(row)
             return None
+
+    def get_all_patients_df(self) -> pd.DataFrame:
+        with self._get_connection() as conn:
+            return pd.read_sql_query("SELECT * FROM patients ORDER BY patient_id ASC", conn)
+
+    def add_patient(self, metrics: Dict[str, float]) -> int:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO patients (Glucose, BMI, Age, BloodPressure)
+                VALUES (?, ?, ?, ?)
+            """, (metrics["Glucose"], metrics["BMI"], metrics["Age"], metrics["BloodPressure"]))
+            conn.commit()
+            return cursor.lastrowid
 
     def update_patient(self, patient_id: int, updated_metrics: Dict[str, float]) -> bool:
         with self._get_connection() as conn:
@@ -140,60 +184,147 @@ class ClinicalRiskService:
             category = "High Risk"
         return total_score, category
 
+    def get_metric_status_label(self, metric_name: str, value: float) -> Tuple[str, str]:
+        score = self.calculate_metric_score(metric_name, value)
+        if score == 0:
+            return "Normal", "status-normal"
+        elif score == 1:
+            return "Elevated", "status-warning"
+        return "High", "status-danger"
+
 
 # =====================================================================
-# 3. PRESENTATION LAYER (STREAMLIT GUI)
+# 3. PRESENTATION LAYER (ENHANCED STREAMLIT GUI)
 # =====================================================================
 class StreamlitView:
-    """Handles layout, interactive input widgets, and graphical output panels for Streamlit."""
+    """Handles layout, interactive input widgets, and visual outputs."""
     
     @staticmethod
-    def render_app(model: Any, service: ClinicalRiskService) -> None:
-        st.title("Diabetes Risk Scoring System")
-        st.markdown("Select a patient, review/modify their clinical metrics, and evaluate diagnostic risk.")
+    def render_app(model: PatientModel, service: ClinicalRiskService) -> None:
+        st.title("🩺 Clinical Diabetes Risk Scoring System")
+        st.caption("Real-time clinical triage dashboard powered by SQLite3")
 
-        # Patient Selection
-        valid_ids = model.get_all_ids()
-        selected_id = st.selectbox("Select Patient ID", options=valid_ids)
+        tab_assess, tab_add, tab_records = st.tabs([
+            "📋 Patient Assessment", 
+            "➕ Add New Patient", 
+            "🗂️ Patient Records"
+        ])
 
-        if selected_id:
-            patient_metrics = model.get_patient(selected_id)
+        # TAB 1: ASSESSMENT & EDITING
+        with tab_assess:
+            valid_ids = model.get_all_ids()
+            if not valid_ids:
+                st.info("No patients available in the database.")
+                return
 
-            if patient_metrics:
-                st.subheader(f"Clinical Profile (Patient {selected_id})")
-                
-                # Interactive Input Fields for Modification
-                updated_metrics = {}
-                cols = st.columns(2)
-                
-                for idx, (metric, current_val) in enumerate(patient_metrics.items()):
-                    with cols[idx % 2]:
-                        updated_metrics[metric] = st.number_input(
-                            f"{metric}", 
-                            value=float(current_val),
-                            step=1.0 if metric == "Age" else 0.1,
-                            format="%.1f"
+            col_select, col_empty = st.columns([1, 2])
+            with col_select:
+                selected_id = st.selectbox("🎯 Select Patient ID", options=valid_ids)
+
+            if selected_id:
+                patient_metrics = model.get_patient(selected_id)
+                if patient_metrics:
+                    st.divider()
+                    col_inputs, col_analysis = st.columns([1, 1], gap="large")
+
+                    with col_inputs:
+                        st.subheader(f"Update Patient #{selected_id}")
+                        updated_metrics = {}
+                        
+                        updated_metrics["Glucose"] = st.number_input(
+                            "Glucose (mg/dL)", value=float(patient_metrics["Glucose"]), step=1.0, format="%.1f"
+                        )
+                        updated_metrics["BMI"] = st.number_input(
+                            "BMI (kg/m²)", value=float(patient_metrics["BMI"]), step=0.1, format="%.1f"
+                        )
+                        updated_metrics["BloodPressure"] = st.number_input(
+                            "Blood Pressure (mmHg)", value=float(patient_metrics["BloodPressure"]), step=1.0, format="%.1f"
+                        )
+                        updated_metrics["Age"] = st.number_input(
+                            "Age (years)", value=float(patient_metrics["Age"]), step=1.0, format="%.1f"
                         )
 
-                # Action Button to Save & Evaluate
-                if st.button("Evaluate Patient Risk", type="primary"):
-                    model.update_patient(selected_id, updated_metrics)
-                    score, category = service.evaluate_patient_risk(updated_metrics)
+                        if st.button("💾 Save & Re-evaluate Risk", type="primary"):
+                            model.update_patient(selected_id, updated_metrics)
+                            st.toast(f"Patient #{selected_id} metrics updated successfully!", icon="✅")
 
-                    st.markdown("---")
-                    st.subheader("Diagnostic Risk Report")
-                    
-                    # Display Results Panel
-                    m_col1, m_col2 = st.columns(2)
-                    m_col1.metric("Cumulative Score", f"{score} pts")
-                    m_col2.metric("Risk Category", category)
+                    with col_analysis:
+                        st.subheader("Diagnostic Risk Analysis")
+                        score, category = service.evaluate_patient_risk(updated_metrics)
 
-                    if category == "Low Risk":
-                        st.success(f"Patient {selected_id} is categorized as **{category.upper()}**.")
-                    elif category == "Moderate Risk":
-                        st.warning(f"Patient {selected_id} is categorized as **{category.upper()}**.")
-                    else:
-                        st.error(f"Patient {selected_id} is categorized as **{category.upper()}**.")
+                        # Top-level KPI Indicators
+                        m1, m2 = st.columns(2)
+                        m1.metric("Cumulative Score", f"{score} / 8 pts")
+                        m2.metric("Overall Category", category)
+
+                        if category == "Low Risk":
+                            st.success("🟢 **LOW RISK**: Routine follow-up recommended.")
+                        elif category == "Moderate Risk":
+                            st.warning("🟡 **MODERATE RISK**: Lifestyle intervention recommended.")
+                        else:
+                            st.error("🔴 **HIGH RISK**: Immediate clinical evaluation required.")
+
+                        st.divider()
+                        st.markdown("##### Metric Status Breakdown")
+                        for metric, value in updated_metrics.items():
+                            status_label, status_class = service.get_metric_status_label(metric, value)
+                            st.markdown(
+                                f"""
+                                <div class="metric-card {status_class}">
+                                    <strong>{metric}:</strong> {value} 
+                                    <span style="float: right; font-weight: bold;">{status_label}</span>
+                                </div>
+                                """, 
+                                unsafe_allow_html=True
+                            )
+
+        # TAB 2: ADD PATIENT
+        with tab_add:
+            st.subheader("Add New Patient Record")
+            with st.form("new_patient_form", clear_on_submit=True):
+                col_a, col_b = st.columns(2)
+                with col_a:
+                    new_glucose = st.number_input("Glucose Level", min_value=0.0, value=100.0, step=1.0)
+                    new_bmi = st.number_input("BMI", min_value=0.0, value=24.0, step=0.1)
+                with col_b:
+                    new_bp = st.number_input("Blood Pressure", min_value=0.0, value=120.0, step=1.0)
+                    new_age = st.number_input("Age", min_value=0.0, value=30.0, step=1.0)
+
+                if st.form_submit_button("➕ Register Patient", type="primary"):
+                    new_data = {
+                        "Glucose": new_glucose,
+                        "BMI": new_bmi,
+                        "BloodPressure": new_bp,
+                        "Age": new_age
+                    }
+                    new_id = model.add_patient(new_data)
+                    st.success(f"Patient registered successfully with ID: **#{new_id}**")
+                    st.rerun()
+
+        # TAB 3: RECORDS & VISUALIZATION
+        with tab_records:
+            st.subheader("Database Overview")
+            df = model.get_all_patients_df()
+            
+            if not df.empty:
+                # Add calculated risk scores dynamically to DataFrame view
+                scores = []
+                categories = []
+                for _, row in df.iterrows():
+                    metrics = {"Glucose": row["Glucose"], "BMI": row["BMI"], "Age": row["Age"], "BloodPressure": row["BloodPressure"]}
+                    s, c = service.evaluate_patient_risk(metrics)
+                    scores.append(s)
+                    categories.append(c)
+                
+                df["Risk Score"] = scores
+                df["Risk Category"] = categories
+
+                st.dataframe(df, use_container_width=True, hide_index=True)
+
+                st.divider()
+                st.subheader("Cohort Metrics Comparison")
+                chart_data = df.set_index("patient_id")[["Glucose", "BMI", "BloodPressure", "Age"]]
+                st.bar_chart(chart_data)
 
 
 # =====================================================================
@@ -249,12 +380,10 @@ class RiskAssessmentTestSuite:
         model = self.model_factory()
         service = self.service_class()
         
-        # Test Case 1: Data cleaning checks (BMI imputation verification)
         patient_102 = model.get_patient(102)
         assert patient_102 is not None, "E2E Error: Patient 102 not found"
         assert patient_102["BMI"] > 0, f"E2E Error: Anomalous BMI of 0 was not replaced. Got {patient_102['BMI']}"
         
-        # Test Case 2: Ensure baseline low metrics first
         baseline_low_metrics = {
             "Glucose": 85.0,
             "BMI": 20.0,
@@ -265,12 +394,11 @@ class RiskAssessmentTestSuite:
         patient_101_base = model.get_patient(101)
         original_score, _ = service.evaluate_patient_risk(patient_101_base)
         
-        # Escalate metrics to guarantee a score increase
         modified_metrics = {
-            "Glucose": 160.0,  # 2 pts
-            "BMI": 32.0,       # 2 pts
-            "Age": 60.0,       # 2 pts
-            "BloodPressure": 140.0 # 2 pts
+            "Glucose": 160.0,
+            "BMI": 32.0,
+            "Age": 60.0,
+            "BloodPressure": 140.0
         }
         
         update_ok = model.update_patient(101, modified_metrics)
