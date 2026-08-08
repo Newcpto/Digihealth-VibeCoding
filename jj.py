@@ -1,4 +1,4 @@
-import sqlite3  # <--- เพิ่มตรงนี้
+import sqlite3
 import statistics
 import time
 from typing import Dict, List, Optional, Tuple, Any
@@ -10,10 +10,7 @@ import streamlit as st
 RUN_TEST_SUITE = True
 
 # =====================================================================
-# 1. DATA ACCESS LAYER (MODELS)
-# =====================================================================
-# =====================================================================
-# 1. DATA ACCESS LAYER (MODELS)
+# 1. DATA ACCESS LAYER (MODELS - SQLITE DATABASE)
 # =====================================================================
 class PatientModel:
     """Manages persistent SQLite database patient data storage and initial data cleaning."""
@@ -107,6 +104,7 @@ class PatientModel:
             ))
             conn.commit()
             return cursor.rowcount > 0
+
 
 # =====================================================================
 # 2. BUSINESS LOGIC LAYER (SERVICE)
