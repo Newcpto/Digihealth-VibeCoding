@@ -136,11 +136,6 @@ class ConsoleView:
         print("     This document contains privileged health data.")
         print("-" * 45)
         print("="*45 + "\n")
-    @staticmethod
-    def display_diagnostic_report(patient_id: int, score: int, category: str) -> None:
-        print("\n" + "*"*40 + "\n          DIAGNOSTIC RISK REPORT\n" + "*"*40)
-        print(f" Patient ID:       {patient_id}\n Cumulative Score: {score} pts\n Risk Category:    {category.upper()}")
-        print("*"*40)
 
 
 # =====================================================================
