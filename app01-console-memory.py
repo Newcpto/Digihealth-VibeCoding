@@ -121,7 +121,21 @@ class ConsoleView:
         except ValueError:
             print("[Invalid Input] Keeping original value.")
             return current_value
-
+    @staticmethod
+    def display_diagnostic_report(patient_id: int, score: int, category: str) -> None:
+        print("\n" + "="*45)
+        print("          OFFICIAL MEDICAL DIAGNOSTIC RECEIPT")
+        print("="*45)
+        print("*" * 45)
+        print(f" PATIENT ID         : {patient_id}")
+        print(f" CUMULATIVE SCORE   : {score} pts")
+        print(f" RISK CATEGORY      : {category.upper()}")
+        print("*" * 45)
+        print("-" * 45)
+        print(" [!] NOTICE: CONFIDENTIAL MEDICAL INFORMATION [!]")
+        print("     This document contains privileged health data.")
+        print("-" * 45)
+        print("="*45 + "\n")
     @staticmethod
     def display_diagnostic_report(patient_id: int, score: int, category: str) -> None:
         print("\n" + "*"*40 + "\n          DIAGNOSTIC RISK REPORT\n" + "*"*40)
